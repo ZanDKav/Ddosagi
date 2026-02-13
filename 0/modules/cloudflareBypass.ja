@@ -1,0 +1,203 @@
+const axios = require('axios');
+const https = require('https');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { SocksProxyAgent } = require('socks-proxy-agent');
+const cloudscraper = require('cloudscraper');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const config = require('../config');
+
+puppeteer.use(StealthPlugin());
+
+class CloudflareBypass {
+    constructor() {
+        this.sessionCookies = new Map();
+        this.userAgents = config.MOZILLA_VERSIONS;
+        this.browser = null;
+    }
+    
+    async initBrowser() {
+        if (!this.browser && config.USE_PUPPETEER) {
+            this.browser = await puppeteer.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--window-size=1920,1080'
+                ]
+            });
+        }
+    }
+    
+    async bypassWithCloudscraper(url, proxy = null) {
+        const options = {
+            url: url,
+            method: 'GET',
+            headers: {
+                'User-Agent': this.userAgents[Math.floor(Math.random() * this.userAgents.length)],
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+        };
+        
+        if (proxy) {
+            options.agent = this.createProxyAgent(proxy);
+        }
+        
+        try {
+            const response = await cloudscraper(options);
+            return {
+                success: true,
+                data: response,
+                cookies: cloudscraper.getCookies ? cloudscraper.getCookies() : []
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    async bypassWithPuppeteer(url) {
+        await this.initBrowser();
+        
+        try {
+            const page = await this.browser.newPage();
+            
+            // Set user agent
+            await page.setUserAgent(
+                this.userAgents[Math.floor(Math.random() * this.userAgents.length)]
+            );
+            
+            // Set extra headers
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br'
+            });
+            
+            // Navigate and wait for Cloudflare to pass
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+            
+            // Check if still on challenge page
+            const isChallenge = await page.evaluate(() => {
+                return document.title.includes('Just a moment') || 
+                       document.body.innerText.includes('Checking your browser');
+            });
+            
+            if (isChallenge) {
+                // Wait for challenge to complete
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 })
+                    .catch(() => {});
+            }
+            
+            // Get cookies
+            const cookies = await page.cookies();
+            const content = await page.content();
+            
+            await page.close();
+            
+            return {
+                success: true,
+                data: content,
+                cookies: cookies
+            };
+            
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    async solveCaptcha(siteKey, pageUrl) {
+        if (!config.CAPTCHA_API_KEY) {
+            return { success: false, error: "No captcha API key" };
+        }
+        
+        try {
+            // Send to 2captcha service
+            const response = await axios.post('http://2captcha.com/in.php', null, {
+                params: {
+                    key: config.CAPTCHA_API_KEY,
+                    method: 'userrecaptcha',
+                    googlekey: siteKey,
+                    pageurl: pageUrl,
+                    json: 1
+                }
+            });
+            
+            if (response.data.status !== 1) {
+                return { success: false, error: "Failed to submit captcha" };
+            }
+            
+            const requestId = response.data.request;
+            
+            // Wait for solution
+            await new Promise(resolve => setTimeout(resolve, 15000));
+            
+            // Get result
+            for (let i = 0; i < 10; i++) {
+                const result = await axios.get('http://2captcha.com/res.php', {
+                    params: {
+                        key: config.CAPTCHA_API_KEY,
+                        action: 'get',
+                        id: requestId,
+                        json: 1
+                    }
+                });
+                
+                if (result.data.status === 1) {
+                    return {
+                        success: true,
+                        solution: result.data.request
+                    };
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            
+            return { success: false, error: "Timeout waiting for captcha" };
+            
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    
+    createProxyAgent(proxy) {
+        if (proxy.startsWith('socks4://') || proxy.startsWith('socks5://')) {
+            return new SocksProxyAgent(proxy);
+        } else {
+            return new HttpsProxyAgent(proxy);
+        }
+    }
+    
+    async bypass(url, proxy = null) {
+        // Try cloudscraper first (fastest)
+        const result1 = await this.bypassWithCloudscraper(url, proxy);
+        if (result1.success) {
+            return result1;
+        }
+        
+        // Fallback to puppeteer if cloudscraper fails
+        if (config.USE_PUPPETEER) {
+            const result2 = await this.bypassWithPuppeteer(url);
+            if (result2.success) {
+                return result2;
+            }
+        }
+        
+        return {
+            success: false,
+            error: "Failed to bypass Cloudflare"
+        };
+    }
+}
+
+module.exports = CloudflareBypass;
