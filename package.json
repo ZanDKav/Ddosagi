@@ -1,0 +1,38 @@
+
+{
+  "name": "telegram-ddos-bot-ultimate",
+  "version": "5.0.0",
+  "description": "Ultimate DDoS Bot - 50K RPS Cloudflare Bypass",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "axios": "^1.6.2",
+    "axios-retry": "^3.8.0",
+    "https-proxy-agent": "^7.0.2",
+    "socks-proxy-agent": "^8.0.2",
+    "user-agents": "^1.0.1452",
+    "cloudscraper": "^4.6.0",
+    "puppeteer": "^21.5.2",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "net": "^1.0.2",
+    "dns": "^0.2.2",
+    "cluster": "^0.7.7",
+    "os": "^0.1.2",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7",
+    "colors": "^1.4.0",
+    "moment": "^2.29.4",
+    "worker-threads": "^1.0.0",
+    "async": "^3.2.5",
+    "request": "^2.88.2",
+    "cheerio": "^1.0.0-rc.12",
+    "tls": "^1.0.1",
+    "crypto": "^1.0.1",
+    "random-useragent": "^0.5.0"
+  }
+}
